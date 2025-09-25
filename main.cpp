@@ -1,4 +1,6 @@
 #include <iostream>
+#include <fstream>
+
 using namespace std;
 
 unsigned char rotar_derecha(unsigned char byte, int n);
@@ -126,4 +128,129 @@ int contiene_subcadena(const char* buffer, int longitud_texto, const char* fragm
         if (coincide) return 1;
     }
     return 0;
+}
+
+char* copiar_cadena(const char* cadena_origen, int longitud){
+    if (longitud == -1){
+        longitud = calcular_longitud_cadena(cadena_origen);
+    }
+    char* nueva_cadena = new char[longitud + 1];
+    for(int i=0; i < longitud; ++i){
+        nueva_cadena[i] = cadena_origen[i];
+    }
+
+    nueva_cadena[longitud] = '\0';
+    return nueva_cadena;
+}
+
+//funcion para leer archivos y retornar el buffer del contendio
+char* leer_archivo_a_buffer(const char* nombre_archivo, int& tamano_archivo){
+    ifstream archivo(nombre_archivo, std::ios::binary | std::ios::ate);
+    if(!archivo.is_open()){
+        cout<<"error: no se pudo abrir el archivo"<< nombre_archivo <<endl;
+        tamano_archivo = 0;
+        return NULL;
+    }
+
+    tamano_archivo = archivo.tellg();
+    archivo.seekg(0,std::ios::beg);
+
+    char* contenido_buffer = new char [tamano_archivo +1];
+
+    archivo.read(contenido_buffer, tamano_archivo);
+    contenido_buffer[tamano_archivo] = '\0';
+
+    archivo.close();
+    return contenido_buffer;
+}
+
+char* desmcomprimirLZ78(const char* datos_comprimidos,int longitud_comprimido, int& longitud_original){
+    longitud_original = 0;
+    if (longitud_comprimido % 3 != 0){
+        return NULL;
+    }
+    const int MAX_DICC = 65536;
+    char** diccionario = new char* [MAX_DICC];
+    int tamano_diccionario = 0;
+    for (int j = 0; j<MAX_DICC; ++j){
+        diccionario[j] = NULL;
+    }
+    char* datos_salida = new char[longitud_comprimido* 100 +1];
+    int indice_salida = 0;
+    for (int i=0; i<longitud_comprimido; i+=3){
+        unsigned short indice_prefijo_codificado = ((unsigned char)datos_comprimidos[i]<<8) |
+                                                   (unsigned char)datos_comprimidos[i + 1];
+        char siguiente_caracter = datos_comprimidos[i + 2];
+        char* prefijo = NULL;
+        int longitud_prefijo = 0;
+        if (indice_prefijo_codificado == 0){
+            prefijo = new char[1] {'\0'};
+            longitud_prefijo = 0;
+        }
+        else if (indice_prefijo_codificado){
+            prefijo = copiar_cadena(diccionario[indice_prefijo_codificado - 1], -1);
+            longitud_prefijo = calcular_longitud_cadena(prefijo);
+        }
+        else{
+            for (int k = 0; k < tamano_diccionario; ++k) {
+                if (diccionario[k])
+                    delete[] diccionario[k];
+            }
+            delete[] diccionario;
+            delete[] datos_salida;
+            if (prefijo) delete[] prefijo;
+            return NULL;
+        }
+        char* nueva_entrada_diccionario = new char[longitud_prefijo + 2];
+        for (int k =0; k<longitud_prefijo; ++k){
+            nueva_entrada_diccionario[k] = prefijo[k];
+        }
+        nueva_entrada_diccionario[longitud_prefijo] = siguiente_caracter;
+        nueva_entrada_diccionario[longitud_prefijo + 1] = '\0';
+
+        if(tamano_diccionario < MAX_DICC){
+            diccionario[tamano_diccionario++] = nueva_entrada_diccionario;
+        }
+        else
+        {
+            for(int k = 0; k<tamano_diccionario; ++k){
+                if (diccionario[k]) delete[] diccionario[k];
+            }
+            delete[] diccionario;
+            delete[] datos_salida;
+            delete[] prefijo;
+            delete[] nueva_entrada_diccionario;
+            return NULL;
+        }
+        for(int k = 0; k < tamano_diccionario; ++k){
+            if(indice_salida >= longitud_comprimido * 100){
+                for(int m = 0; m < tamano_diccionario; ++m){
+                    if (diccionario[m]) delete[] diccionario[m];
+                }
+                delete[] diccionario;
+                delete[] datos_salida;
+                delete[] prefijo;
+                return NULL;
+            }
+            datos_salida[indice_salida++] = prefijo[k];
+        }
+        if(indice_salida >= longitud_comprimido * 100){
+            for(int m = 0; m < tamano_diccionario; ++m){
+                if (diccionario[m]) delete[] diccionario[m];
+            }
+            delete[] diccionario;
+            delete[] datos_salida;
+            delete[] prefijo;
+            return NULL;
+        }
+        datos_salida[indice_salida++] = siguiente_caracter;
+        delete[] prefijo;
+    }
+    datos_salida[indice_salida] = '\0';
+    longitud_original = indice_salida;
+    for(int j= 0; j < tamano_diccionario; ++j){
+        if (diccionario[j]) delete[] diccionario[j];
+    }
+    delete[] diccionario;
+    return datos_salida;
 }
