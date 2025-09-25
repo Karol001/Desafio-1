@@ -11,6 +11,9 @@ int es_digito(char caracter);
 int calcular_longitud_cadena(const char* cadena);
 void encriptar_buffer(char* buffer, int longitud, int n, unsigned char k);
 int contiene_subcadena(const char* buffer, int longitud_texto, const char* fragmento, int longitud_fragmento);
+char* copiar_cadena(const char* cadena_origen, int longitud);
+char* leer_archivo_a_buffer(const char* nombre_archivo, int& tamano_archivo);
+char* desmcomprimirLZ78(const char* datos_comprimidos,int longitud_comprimido, int& longitud_original);
 
 int main()
 {
@@ -22,6 +25,8 @@ int main()
     // ---- es_digito ----
     cout << "[es_digito] '5' -> " << es_digito('5') << " (esperado 1)\n";
     cout << "[es_digito] 'a' -> " << es_digito('a') << " (esperado 0)\n";
+    cout << "[es_digito] '0' -> " << es_digito('0') << " (esperado 1)\n";
+    cout << "[es_digito] '9' -> " << es_digito('9') << " (esperado 1)\n";
 
     // ---- rotar_izquierda / rotar_derecha ----
     unsigned char b = 0x81; // 1000 0001
@@ -37,7 +42,7 @@ int main()
     int lenX = calcular_longitud_cadena(bufX);
     cout << "[XOR] antes: " << bufX << "\n";
     XOR(bufX, lenX, (unsigned char)0x5A);
-    cout << "[XOR] cifrado (no legible): ";
+    cout << "[XOR] cifrado (bytes): ";
     for (int i = 0; i < lenX; ++i) cout << (int)(unsigned char)bufX[i] << ' ';
     cout << "\n";
     XOR(bufX, lenX, (unsigned char)0x5A);
@@ -65,6 +70,81 @@ int main()
          << contiene_subcadena(texto, lt, frag1, lf1) << " (esperado 1)\n";
     cout << "[subcadena] \"xyz\" en \"Hola mundo\" -> "
          << contiene_subcadena(texto, lt, frag2, lf2) << " (esperado 0)\n";
+
+    // ---- copiar_cadena ----
+    const char* origen = "Copiar esto";
+    int lorg = calcular_longitud_cadena(origen);
+    char* copia1 = copiar_cadena(origen, -1);
+    char* copia2 = copiar_cadena(origen, lorg);
+    cout << "[copiar_cadena] copia1: \"" << copia1 << "\" (esperado Copiar esto)\n";
+    cout << "[copiar_cadena] copia2: \"" << copia2 << "\" (esperado Copiar esto)\n";
+    delete[] copia1;
+    delete[] copia2;
+
+    // ---- leer_archivo_a_buffer ----
+    {
+        const char* nombre = "prueba_io.txt";
+        {
+            ofstream out(nombre, std::ios::binary);
+            if (!out.is_open()) {
+                cout << "[archivo] ERROR: no se pudo crear " << nombre << "\n";
+            } else {
+                const char* contenido = "Line1\nLine2";
+                out.write(contenido, calcular_longitud_cadena(contenido));
+                out.close();
+                cout << "[archivo] escrito: " << nombre << "\n";
+            }
+        }
+
+        int tam = 0;
+        char* leido = leer_archivo_a_buffer(nombre, tam);
+        if (leido) {
+            cout << "[archivo] leído (" << tam << " bytes): \"" << leido
+                 << "\" (esperado \"Line1\\nLine2\")\n";
+            delete[] leido;
+        } else {
+            cout << "[archivo] ERROR al leer " << nombre << "\n";
+        }
+    }
+
+    // ---- Pruebas LZ78 con datos comprimidos (3 bytes por tupla: índice BE + char) ----
+    {
+        // Caso 1: produce "AABABA"
+        // Tuplas:
+        // (0, 'A') -> "A"         ; dic[1] = "A"
+        // (1, 'B') -> "AB"        ; dic[2] = "AB"
+        // (2, 'A') -> "ABA"       ; dic[3] = "ABA"
+        const char datos1[] = {
+            0x00, 0x00, 'A',
+            0x00, 0x01, 'B',
+            0x00, 0x02, 'A'
+        };
+        int outlen1 = 0;
+        char* out1 = desmcomprimirLZ78(datos1, (int)sizeof(datos1), outlen1);
+        if (out1) {
+            cout << "[LZ78-1] salida: \"" << out1 << "\" (esperado \"AABABA\"), len=" << outlen1 << "\n";
+            delete[] out1;
+        } else {
+            cout << "[LZ78-1] ERROR de descompresión\n";
+        }
+
+        // Caso 2: produce "Hola"
+        // (0,'H'), (0,'o'), (0,'l'), (0,'a')
+        const char datos2[] = {
+            0x00, 0x00, 'H',
+            0x00, 0x00, 'o',
+            0x00, 0x00, 'l',
+            0x00, 0x00, 'a'
+        };
+        int outlen2 = 0;
+        char* out2 = desmcomprimirLZ78(datos2, (int)sizeof(datos2), outlen2);
+        if (out2) {
+            cout << "[LZ78-2] salida: \"" << out2 << "\" (esperado \"Hola\"), len=" << outlen2 << "\n";
+            delete[] out2;
+        } else {
+            cout << "[LZ78-2] ERROR de descompresión\n";
+        }
+    }
 
     return 0;
 }
@@ -222,11 +302,9 @@ char* desmcomprimirLZ78(const char* datos_comprimidos,int longitud_comprimido, i
             delete[] nueva_entrada_diccionario;
             return NULL;
         }
-        for(int k = 0; k < tamano_diccionario; ++k){
-            if(indice_salida >= longitud_comprimido * 100){
-                for(int m = 0; m < tamano_diccionario; ++m){
-                    if (diccionario[m]) delete[] diccionario[m];
-                }
+        for (int k = 0; k < longitud_prefijo; ++k){
+            if (indice_salida >= longitud_comprimido * 100){
+                for (int m = 0; m < tamano_diccionario; ++m) if (diccionario[m]) delete[] diccionario[m];
                 delete[] diccionario;
                 delete[] datos_salida;
                 delete[] prefijo;
