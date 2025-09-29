@@ -5,8 +5,8 @@ using namespace std;
 
 unsigned char rotar_derecha(unsigned char byte, int n);
 unsigned char rotar_izquierda(unsigned char byte, int n);
-void XOR(char* Arreglo_Bytes, int tamaño, unsigned char clave);
-void desencriptar_buffer(char* buffer, int tamaño, int n, unsigned char k );
+void XOR(char* Arreglo_Bytes, int tamano, unsigned char clave);
+void desencriptar_buffer(char* buffer, int tamano, int n, unsigned char k );
 int es_digito(char caracter);
 int calcular_longitud_cadena(const char* cadena);
 void encriptar_buffer(char* buffer, int longitud, int n, unsigned char k);
@@ -20,11 +20,107 @@ char* identificarydescifrar(const char* datos_codificados, int longitud_codifica
 
 
 
-int main()
-{
+int main() {
+    cout << "=== Desafio -  ===\n";
 
+    int n_casos = 0;
+    cout << "Cuantos archivos se evaluaran en esta ejecucion? ";
+    cin >> n_casos;
+    if (n_casos <= 0) {
+        cout << "Nada que procesar.\n";
+        return 0;
+    }
+
+    // Consumir salto pendiente
+    cin.ignore();
+
+    for (int caso = 1; caso <= n_casos; ++caso) {
+        cout << "\n=== Caso " << caso << " ===\n";
+        cout << "Nombre del archivo encriptado " << caso << ".txt): ";
+        char nombre_archivo[100];
+        cin.getline(nombre_archivo, 100);
+
+        cout << "Nombre del archivo con la pista " << caso << ".txt): ";
+        char nombre_pista[100];
+        cin.getline(nombre_pista, 100);
+
+        // Leer pista desde archivo
+        int long_pista_archivo = 0;
+        char* buffer_pista = leer_archivo_a_buffer(nombre_pista, long_pista_archivo);
+        if (buffer_pista == NULL || long_pista_archivo <= 0) {
+            cout << "Error: no se pudo leer la pista de '" << nombre_pista << "'.\n";
+            delete[] buffer_pista; // por si acaso
+            continue;
+        }
+
+        // Normalizar pista: quitar '\r' y '\n' al final
+        int longitud_fragmento = long_pista_archivo;
+        while (longitud_fragmento > 0 &&
+               (buffer_pista[longitud_fragmento - 1] == '\n' ||
+                buffer_pista[longitud_fragmento - 1] == '\r')) {
+            buffer_pista[--longitud_fragmento] = '\0';
+        }
+
+        if (longitud_fragmento == 0) {
+            cout << "Error: la pista en '" << nombre_pista << "' esta vacia.\n";
+            delete[] buffer_pista;
+            continue;
+        }
+
+        // Leer datos encriptados
+        int tamano_archivo = 0;
+        char* datos_codificados = leer_archivo_a_buffer(nombre_archivo, tamano_archivo);
+        if (datos_codificados == NULL || tamano_archivo <= 0) {
+            cout << "Error al leer el archivo encriptado '" << nombre_archivo << "'.\n";
+            delete[] datos_codificados;
+            delete[] buffer_pista;
+            continue;
+        }
+
+        cout << "Archivo encriptado leido. Tamano: " << tamano_archivo << " bytes\n";
+        cout << "Pista: \"" << buffer_pista << "\"\n";
+
+        // Intentar identificar y descifrar
+        int parametros[3]; // [0]=metodo(0=RLE,1=LZ78), [1]=n, [2]=K
+        int longitud_descomprimida = 0;
+
+        char* mensaje_recuperado = identificarydescifrar(
+            datos_codificados,
+            tamano_archivo,
+            buffer_pista,
+            longitud_fragmento,
+            parametros,
+            longitud_descomprimida
+            );
+
+        if (mensaje_recuperado) {
+            cout << "\n=== EXITO (Caso " << caso << ") ===\n";
+            cout << "Metodo de compresion: " << (parametros[0] == 0 ? "RLE" : "LZ78") << "\n";
+            cout << "Rotacion (n): " << parametros[1] << "\n";
+            cout << "Clave XOR (K): " << parametros[2]
+                 << " (0x" << std::hex << parametros[2] << std::dec << ")\n";
+
+            cout << "\n--- Mensaje original ---\n";
+            for (int i = 0; i < longitud_descomprimida; ++i) {
+                cout << mensaje_recuperado[i];
+            }
+            cout << "\n--- Fin del mensaje ---\n";
+
+            delete[] mensaje_recuperado;
+        } else {
+            cout << "\n=== FALLO (Caso " << caso << ") ===\n";
+            cout << "No se pudo identificar el metodo de compresion y/o parametros de encriptacion.\n";
+        }
+
+        // Limpieza por caso
+        delete[] datos_codificados;
+        delete[] buffer_pista;
+    }
+
+    cout << "\n=== Proceso terminado ===\n";
     return 0;
 }
+
 
 //funciones
 
@@ -49,8 +145,8 @@ unsigned char rotar_derecha(unsigned char byte, int n) {
     return (unsigned char)((byte >> n) | (byte << (8 - n)));
 }
 
-void XOR(char* buffer, int tamaño, unsigned char clave) {
-    for (int i = 0; i < tamaño; i++) {
+void XOR(char* buffer, int tamano, unsigned char clave) {
+    for (int i = 0; i < tamano; i++) {
         buffer[i] = (char)((unsigned char)buffer[i] ^ clave);
     }
 }
@@ -63,9 +159,9 @@ void encriptar_buffer(char* buffer, int longitud, int n, unsigned char k){
 }
 
 // XOR + rotación derecha
-void desencriptar_buffer(char* buffer, int tamaño, int n, unsigned char k ){
-    XOR(buffer, tamaño, k);
-    for(int i=0; i< tamaño; ++i){
+void desencriptar_buffer(char* buffer, int tamano, int n, unsigned char k ){
+    XOR(buffer, tamano, k);
+    for(int i=0; i< tamano; ++i){
         buffer[i] = (char)rotar_derecha((unsigned char)buffer[i], n);
     }
 }
@@ -121,34 +217,49 @@ char* leer_archivo_a_buffer(const char* nombre_archivo, int& tamano_archivo){
 }
 
 // RLE simple
-char* desomprimirRle(const char* cadena_codificada, int longitud_codificada, int& longitud_original){
+// RLE binario: [count_hi][count_lo][sym] repetidos
+char* desomprimirRle(const char* datos, int longitud_codificada, int& longitud_original) {
     longitud_original = 0;
-    char* cadena_descomprimida = new char[longitud_codificada * 100 + 1];
-    int indice_salida = 0;
-    int i = 0;
-    while (i < longitud_codificada){
-        int repeticiones = 0;
-        while (i < longitud_codificada && es_digito(cadena_codificada[i])){
-            repeticiones = repeticiones * 10 + (cadena_codificada[i] - '0');
-            ++i;
-        }
-        if (i >= longitud_codificada || repeticiones == 0){
-            delete[] cadena_descomprimida;
+
+    // Cada run ocupa 3 bytes. Si no cuadra, no es RLE válido.
+    if (longitud_codificada <= 0 || (longitud_codificada % 3) != 0) {
+        return NULL;
+    }
+
+    // Reserva generosa (como en LZ78)
+    long long capacidad = (long long)longitud_codificada * 10 + 1;
+    char* salida = new (nothrow) char[capacidad];
+    if (!salida) return NULL;
+
+    int indice_escritura = 0;
+
+    for (int i = 0; i < longitud_codificada; i += 3) {
+        unsigned short conteo_repeticion = (unsigned short)(((unsigned char)datos[i] << 8) |
+                                                 (unsigned char)datos[i + 1]);
+        unsigned char simbolo = (unsigned char)datos[i + 2];
+
+        if (conteo_repeticion == 0) { // runs de longitud 0 no son válidos
+            delete[] salida;
             return NULL;
         }
-        char simbolo = cadena_codificada[i++];
-        for(int j = 0; j < repeticiones; ++j){
-            if (indice_salida >= longitud_codificada * 100){
-                delete [] cadena_descomprimida;
-                return NULL;
-            }
-            cadena_descomprimida[indice_salida++] = simbolo;
+
+        // Chequeo de capacidad para evitar overflow del buffer
+        if ((long long)indice_escritura + conteo_repeticion > capacidad - 1) {
+            delete[] salida;
+            return NULL;
+        }
+
+        // Expandir el run
+        for (unsigned short j = 0; j < conteo_repeticion; ++j) {
+            salida[indice_escritura++] = (char)simbolo;
         }
     }
-    cadena_descomprimida[indice_salida] = '\0';
-    longitud_original = indice_salida;
-    return cadena_descomprimida;
+
+    salida[indice_escritura] = '\0';
+    longitud_original = indice_escritura;
+    return salida;
 }
+
 
 // LZ78
 char* desmcomprimirLZ78(const char* datos_comprimidos,int longitud_comprimido, int& longitud_original){
